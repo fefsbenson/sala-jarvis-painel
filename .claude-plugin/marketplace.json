@@ -1,0 +1,12 @@
+{
+  "name": "sala-jarvis-painel",
+  "owner": { "name": "Felipe Rosa" },
+  "metadata": { "description": "O painel /sala da Sala JARVIS para o Claude Code" },
+  "plugins": [
+    {
+      "name": "sala",
+      "source": "./",
+      "description": "A Sala JARVIS ao vivo num painel ao lado da conversa: quem está na sala, o que cada agente está fazendo, mensagens assinadas, anexos, endereço e caixa de entrada (/sala)"
+    }
+  ]
+}

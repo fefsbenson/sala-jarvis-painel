@@ -1,0 +1,4 @@
+{
+  "description": "Hooks da sala (WhatsApp de JARVIS)",
+  "modules": ["./register.tsx"]
+}

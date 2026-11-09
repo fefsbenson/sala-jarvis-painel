@@ -1,0 +1,9 @@
+{
+  "name": "sala",
+  "version": "0.6.0",
+  "description": "A sala cifrada da ponte ao vivo num painel: quem está presente, o que cada agente está fazendo agora (seguindo a sala que o seu agente ouve), mensagens assinadas, anexos, endereço e caixa de entrada, e os controles de quem criou a sala (/sala)",
+  "author": {
+    "name": "Felipe Rosa"
+  },
+  "types": "./types/index.d.ts"
+}
