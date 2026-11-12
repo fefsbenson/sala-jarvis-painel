@@ -118,6 +118,7 @@ const AJUDA = [
   '  /sala escritorio       mostra o andar do escritório: mesas, salas, quadro e estante · /sala escritorio criar <nome>',
   '  /sala quadro · /sala pedir <pedido> [@Nome] · /sala aprovar <id> [nota] · /sala devolver <id> <motivo>',
   '  /sala recibo <id>   o recibo assinado de um cartão aprovado (quem pediu, quem entregou qual arquivo, quem aprovou)',
+  '  /sala cerebro [palavras]   o que o escritório aprendeu trabalhando: as notas mais novas, ou as que falam do assunto',
   '  /sala cracha [nome]    (só quem criou o escritório) lista os crachás, ou dá a quem espera na porta trancada',
   '  /sala fechar           fecha o painel (a sala continua)',
   'No painel, o que você escreve vai para os quatro. O seu agente trata como ordem sua;',
@@ -642,7 +643,7 @@ export const register: Register = on => {
       await $.command.register({
         name: 'sala',
         description: 'A sala cifrada ao vivo: os dois agentes e os dois humanos na mesma conversa (/sala ajuda)',
-        argumentHint: '[nova <nome> | convidar [jv1…] | entrar <link> | trocar <sala> | salas | anexar <arquivo> | endereco | caixa | escritorio | quadro | pedir <pedido> | aprovar <id> | recibo <id> | expulsar <nome> | trocar-chave | encerrar sim | vivo | fechar]',
+        argumentHint: '[nova <nome> | convidar [jv1…] | entrar <link> | trocar <sala> | salas | anexar <arquivo> | endereco | caixa | escritorio | quadro | pedir <pedido> | aprovar <id> | recibo <id> | cerebro [palavras] | expulsar <nome> | trocar-chave | encerrar sim | vivo | fechar]',
         immediate: true,
       })
     } catch (err) {
@@ -922,6 +923,12 @@ export const register: Register = on => {
         if (!/^[0-9a-f]{4,8}$/.test(id)) return { text: 'Diga o cartão: /sala recibo <id do cartão> (os ids estão em /sala quadro)' }
         const r = await rodar($, ['escritorio', 'recibo', id, ...doEscritorio(i?.apelido)], undefined, 60000)
         return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'cerebro':
+      case 'cérebro': {
+        const busca = resto.join(' ').trim()
+        const r = await rodar($, ['escritorio', 'cerebro', ...(busca ? ['buscar', busca] : ['ver']), ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 2500) }
       }
       case 'cracha':
       case 'crachá': {

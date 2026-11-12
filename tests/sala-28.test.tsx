@@ -58,6 +58,8 @@ function motor(on: any, mundo: Mundo) {
     if (a.includes('escritorio aprovar')) return ok('Cartão ab12cd34 ("Fechar o orçamento") APROVADO.')
     if (a.includes('escritorio devolver')) return ok('Cartão ab12cd34 ("Fechar o orçamento") DEVOLVIDO.')
     if (a.includes('escritorio recibo')) return ok('Recibo do cartão ab12cd34 gravado em /tmp/recibo-ab12cd34.json')
+    if (a.includes('escritorio cerebro buscar')) return ok('CÉREBRO · 1 nota(s) sobre "bdi"\n[decisão] BDI padrão de 28% · nota 11aa22bb')
+    if (a.includes('escritorio cerebro ver')) return ok("CÉREBRO DO ESCRITÓRIO 'pragma' · 3 nota(s)")
     if (a.includes(' dizer ')) return ok('Enviada para a sala.')
     if (a.includes(' criar ')) return ok(`Sala 'nova' criada. Mande o LINK:\n\n${JP3}\n\nLINK: https://sala-jarvis.pages.dev/#${JP3}\n`)
     if (a.includes(' convite ')) return ok(JP3 + '\n')
@@ -150,6 +152,12 @@ test('quadro pelo painel: o humano pede (com @Nome), aprova e devolve; os comand
   expect(String(recibo?.text)).toContain('Recibo do cartão ab12cd34')
   const rc = mundo.chamadas.find(x => x.includes('recibo'))!
   expect(rc.slice(rc.indexOf('recibo')).slice(0, 2)).toEqual(['recibo', 'ab12cd34'])
+  const cz = await $.command.run({ command: 'sala', args: 'cerebro' })
+  expect(String(cz?.text)).toContain('CÉREBRO DO ESCRITÓRIO')
+  const czb = await $.command.run({ command: 'sala', args: 'cerebro qual bdi usar' })
+  expect(String(czb?.text)).toContain('BDI padrão de 28%')
+  const cb = mundo.chamadas.find(x => x.includes('buscar'))!
+  expect(cb.slice(cb.indexOf('cerebro')).slice(0, 3)).toEqual(['cerebro', 'buscar', 'qual bdi usar'])
   const semId = await $.command.run({ command: 'sala', args: 'aprovar' })
   expect(String(semId?.text)).toContain('Diga o cartão')
   const quadro = await $.command.run({ command: 'sala', args: 'quadro' })

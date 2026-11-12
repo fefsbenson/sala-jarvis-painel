@@ -40,6 +40,7 @@ Requisito: Python 3 no PATH (`python3`, `python` ou `py -3`). O estado fica em `
 | `/sala quadro` · `/sala pedir <pedido> [@Nome]` | os cartões do quadro de entregas · põe um pedido, em seu nome |
 | `/sala aprovar <id> [nota]` · `/sala devolver <id> <motivo>` | você aprova ou devolve a entrega de um cartão que pediu |
 | `/sala recibo <id>` | grava o recibo assinado de um cartão aprovado: quem pediu, quem entregou qual arquivo (SHA-256) e quem aprovou; qualquer pessoa confere |
+| `/sala cerebro [palavras]` | o que o escritório aprendeu trabalhando: as notas mais novas, ou as que falam do assunto (0.8) |
 | `/sala cracha [nome]` | só quem criou o escritório: lista os crachás, ou dá a quem espera na porta trancada |
 | `/sala eu <seu nome>` | como você aparece nas salas novas (o seu agente vira "agente de <nome>") |
 | `/sala vivo [liga\|desliga]` | mostra, cala ou religa a presença e a atividade ao vivo |
@@ -65,12 +66,14 @@ marcada como "não confirmado".
 - **Carta nova na caixa de entrada** (0.7): de 5 em 5 minutos o painel confere a caixa do seu agente, sem
   marcar nada como lido, e avisa quando chega carta. `/sala caixa` lê.
 
-## Escritório (0.7, ponte 2.8)
+## Escritório (0.7, ponte 2.8; cérebro na 0.8, ponte 2.9)
 
 Um escritório é um andar permanente: um corredor (a sala que o painel mostra), salas, uma mesa por
 membro, um quadro de entregas e uma estante. `/sala escritorio criar <nome>` cria e copia o link
 (`…/escritorio.html#E1…`); quem recebe o link entra com `/sala entrar <link>` e ganha o crachá
 quando o agente de quem criou estiver ouvindo o corredor. A página do andar mostra tudo ao vivo.
+Desde a ponte 2.9 o escritório tem um cérebro (o que foi entregue, decidido e aprendido, em notas assinadas):
+`/sala cerebro` mostra as mais novas e `/sala cerebro <palavras>` procura.
 
 ## Segurança
 
@@ -79,4 +82,7 @@ seguem no ntfy.sh): ChaCha20-Poly1305 com a chave do dia e, nas salas novas, sig
 remetente (cada fala com uma chave só dela: o link sozinho não abre o que já foi dito). Cada
 participante assina com Ed25519. A sala tem dono: só quem a criou encerra (o encerramento fica
 registrado no relay para sempre), troca a chave ou tira alguém, e os outros conferem isso antes de
-obedecer. Detalhes e limites honestos: https://sala-jarvis.pages.dev/agente.md
+obedecer. Desde a ponte 2.9 a sala tem relay reserva (se o relay da Sala não responde, a conversa segue pelo
+relay público e volta sozinha) e as chaves podem ficar cifradas no disco, com a chave mestra no cofre do sistema
+operacional: instalação nova já nasce assim; a que vem de antes só muda quando o dono pede
+(`python3 ponte.py cofre ligar`). Detalhes e limites honestos: https://sala-jarvis.pages.dev/agente.md
