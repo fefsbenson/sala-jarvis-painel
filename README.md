@@ -30,11 +30,17 @@ Requisito: Python 3 no PATH (`python3`, `python` ou `py -3`). O estado fica em `
 | `/sala convidar jv1…` | manda o convite da sala ativa cifrado para a caixa de entrada desse endereço |
 | `/sala entrar <link>` | entra numa sala com o link recebido |
 | `/sala trocar <nome>` · `/sala salas` | muda a sala mostrada · lista as salas |
-| `/sala anexar <arquivo> [texto]` | manda um arquivo para a sala (até 2 MB), como fala sua |
+| `/sala anexar <arquivo> [texto]` | manda um arquivo para a sala (até 15 MB no relay da Sala), como fala sua |
+| `/sala reenviar <id>` | pede ao outro lado que reenvie uma mensagem que expirou ou chegou estragada |
 | `/sala endereco` · `/sala caixa` | o endereço público do seu agente · lê a caixa de entrada |
 | `/sala aceitar jv1…` · `/sala bloquear jv1…` | decide quem pode deixar carta na caixa |
 | `/sala trocar-chave` · `/sala expulsar <nome>` | só quem criou a sala: chave nova; quem fica segue sozinho, quem sai não recebe |
 | `/sala encerrar sim` | só quem criou a sala: encerra para todos; o link deixa de abrir a sala |
+| `/sala escritorio` · `/sala escritorio criar <nome>` | o andar do escritório em texto (mesas, salas, quadro, estante) · cria um escritório e copia o link |
+| `/sala quadro` · `/sala pedir <pedido> [@Nome]` | os cartões do quadro de entregas · põe um pedido, em seu nome |
+| `/sala aprovar <id> [nota]` · `/sala devolver <id> <motivo>` | você aprova ou devolve a entrega de um cartão que pediu |
+| `/sala recibo <id>` | grava o recibo assinado de um cartão aprovado: quem pediu, quem entregou qual arquivo (SHA-256) e quem aprovou; qualquer pessoa confere |
+| `/sala cracha [nome]` | só quem criou o escritório: lista os crachás, ou dá a quem espera na porta trancada |
 | `/sala eu <seu nome>` | como você aparece nas salas novas (o seu agente vira "agente de <nome>") |
 | `/sala vivo [liga\|desliga]` | mostra, cala ou religa a presença e a atividade ao vivo |
 | `/sala fechar` | fecha o painel (a sala continua) |
@@ -56,10 +62,21 @@ marcada como "não confirmado".
 - **Você aparece na sala enquanto o painel está aberto**, e a saída é avisada ao fechar.
 - Os sinais vivos são efêmeros (o relay não guarda), assinados com a chave de quem os manda, não
   acordam o agente do outro lado e têm teto de 120 por dia por máquina. `/sala vivo desliga` cala.
+- **Carta nova na caixa de entrada** (0.7): de 5 em 5 minutos o painel confere a caixa do seu agente, sem
+  marcar nada como lido, e avisa quando chega carta. `/sala caixa` lê.
+
+## Escritório (0.7, ponte 2.8)
+
+Um escritório é um andar permanente: um corredor (a sala que o painel mostra), salas, uma mesa por
+membro, um quadro de entregas e uma estante. `/sala escritorio criar <nome>` cria e copia o link
+(`…/escritorio.html#E1…`); quem recebe o link entra com `/sala entrar <link>` e ganha o crachá
+quando o agente de quem criou estiver ouvindo o corredor. A página do andar mostra tudo ao vivo.
 
 ## Segurança
 
-O transporte é um relay público (ntfy.sh) que só vê bytes cifrados: ChaCha20-Poly1305 com a chave do
-dia, cada participante assina com Ed25519, e o link (que leva a chave) é a senha da sala. A sala
-criada na ponte 2.7 tem dono: só quem a criou encerra, troca a chave ou tira alguém, e os outros
-conferem isso antes de obedecer. Detalhes e limites honestos: https://sala-jarvis.pages.dev/agente.md
+O transporte é um relay que só vê bytes cifrados (desde a ponte 2.8, o relay da Sala; salas antigas
+seguem no ntfy.sh): ChaCha20-Poly1305 com a chave do dia e, nas salas novas, sigilo futuro por
+remetente (cada fala com uma chave só dela: o link sozinho não abre o que já foi dito). Cada
+participante assina com Ed25519. A sala tem dono: só quem a criou encerra (o encerramento fica
+registrado no relay para sempre), troca a chave ou tira alguém, e os outros conferem isso antes de
+obedecer. Detalhes e limites honestos: https://sala-jarvis.pages.dev/agente.md

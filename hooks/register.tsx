@@ -49,6 +49,11 @@ const REUNIAO = 20 * 60           // segundos: mensagem mais nova que isso = sal
 const presencaEm: Record<string, number> = {} // ms do último "estou aqui" do humano, por sala
 let presencaSala = ''             // a sala em que o humano está anunciado agora ('' = nenhuma)
 let presencaRelogio: { cancel: () => void } | null = null
+// 2.8: salas que são corredor de escritório; e o aviso de carta nova na caixa de entrada
+const escritorios = new Set<string>()
+const CAIXA_A_CADA = 5 // em voltas do relógio da presença (1 por minuto): a caixa é conferida de 5 em 5 minutos
+let caixaVoltas = 0
+let caixaAvisadas = 0
 
 type Salas = Record<
   string,
@@ -103,12 +108,17 @@ const AJUDA = [
   '  /sala trocar <nome>    muda a sala mostrada · /sala salas lista as salas',
   '  /sala eu <seu nome>    como você aparece nas salas novas',
   '  /sala vivo [liga|desliga]  mostra, cala ou religa a presença e a atividade ao vivo',
-  '  /sala anexar <arquivo> [texto]  manda um arquivo para a sala (até 2 MB), como fala sua',
+  '  /sala anexar <arquivo> [texto]  manda um arquivo para a sala (até 15 MB no relay da Sala), como fala sua',
+  '  /sala reenviar <id>    pede ao outro lado que reenvie uma mensagem que expirou ou chegou estragada',
   '  /sala endereco         o endereço público do seu agente (jv1…) · /sala caixa lê a caixa de entrada',
   '  /sala convidar jv1…    manda o convite da sala ativa cifrado para a caixa desse endereço',
   '  /sala aceitar jv1… · /sala bloquear jv1…   decide quem pode deixar carta na caixa',
   '  /sala trocar-chave · /sala expulsar <nome>  (só quem criou) chave nova; quem fica segue sozinho',
   '  /sala encerrar sim     (só quem criou) encerra a sala para todos: o link deixa de abrir a sala',
+  '  /sala escritorio       mostra o andar do escritório: mesas, salas, quadro e estante · /sala escritorio criar <nome>',
+  '  /sala quadro · /sala pedir <pedido> [@Nome] · /sala aprovar <id> [nota] · /sala devolver <id> <motivo>',
+  '  /sala recibo <id>   o recibo assinado de um cartão aprovado (quem pediu, quem entregou qual arquivo, quem aprovou)',
+  '  /sala cracha [nome]    (só quem criou o escritório) lista os crachás, ou dá a quem espera na porta trancada',
   '  /sala fechar           fecha o painel (a sala continua)',
   'No painel, o que você escreve vai para os quatro. O seu agente trata como ordem sua;',
   'o agente do outro lado, como pedido do outro humano sobre a entrega conjunta.',
@@ -163,6 +173,31 @@ async function rodar($: any, args: string[], stdin?: string, timeoutMs = 60000) 
   if (stdin !== undefined) init.stdin = stdin
   return $.process.run([...PY, PONTE, ...args], init)
 }
+
+// 2.8: de 5 em 5 minutos, conta as cartas novas na caixa de entrada (sem marcar como lidas) e avisa
+async function conferirCaixa($: any) {
+  caixaVoltas += 1
+  if (caixaVoltas % CAIXA_A_CADA !== 1) return
+  const r = await rodar($, ['caixa', '--espiar'], undefined, 40000)
+  if (r.exitCode !== 0) return
+  let d: any
+  try {
+    d = JSON.parse(r.stdout)
+  } catch {
+    return
+  }
+  const n = Number(d?.novas ?? 0)
+  if (n > 0 && n !== caixaAvisadas) {
+    const de = Array.isArray(d.de) ? d.de.slice(0, 3).map((x: unknown) => String(x).slice(0, 40)).join(', ') : ''
+    const cartas = `${n} carta${n > 1 ? 's' : ''} nova${n > 1 ? 's' : ''}`
+    $.ui.toast(`Caixa de entrada: ${cartas}${de ? ' (' + de + ')' : ''} · /sala caixa`)
+    $.ui.status(`caixa: ${cartas} · /sala caixa`)
+  }
+  caixaAvisadas = n > 0 ? n : 0
+}
+
+// o corredor do escritório ativo, ou nada (a ponte escolhe sozinha quando só há um escritório na máquina)
+const doEscritorio = (apelido?: string) => (apelido && escritorios.has(apelido) ? ['--sala', apelido] : [])
 
 async function acharPython($: any) {
   for (const cand of [['python3'], ['python'], ['py', '-3']]) {
@@ -251,6 +286,7 @@ async function tratarLinha($: any, linha: string) {
   } catch {
     return
   }
+  if (d.tipo === 'conectado' && d.escritorio === true && typeof d.sala === 'string') escritorios.add(d.sala)
   if (d.tipo === 'conectado' || d.tipo === 'pulso') {
     await update($, info, i =>
       i
@@ -298,6 +334,14 @@ async function tratarLinha($: any, linha: string) {
     await update($, aviso, () => String(d.texto ?? '').slice(0, 300))
     return
   }
+  // ponte 2.8: mensagem de serviço (quem entrou; entrega e pedido de chave não aparecem) e registro do andar
+  if (d.tipo === 'servico') {
+    if (d.t === 'entrada' && d.origem !== 'eu' && d.origem !== 'meu-humano') {
+      await update($, aviso, () => `${String(d.de ?? 'Alguém').slice(0, 60)} entrou na sala.`)
+    }
+    return
+  }
+  if (d.tipo === 'fixo') return
   // ponte 2.7: a sala acabou (encerrada por quem criou, ou este agente foi tirado): o painel para de escutar
   if (d.tipo === 'encerrada') {
     encerradas.add(String(d.sala ?? ''))
@@ -489,7 +533,8 @@ async function abrirPainel($: any) {
     : {}
 }
 
-const linkDa = (convite: string) => `${LINK_BASE}/#${convite}`
+// 2.8: o convite de escritório (E1) abre a página do andar
+const linkDa = (convite: string) => (convite.startsWith('E1.') ? `${LINK_BASE}/escritorio.html#${convite}` : `${LINK_BASE}/#${convite}`)
 
 // o trabalho do JARVIS vira sinal vivo na sala ativa. Do que a ferramenta recebeu, só vão à ponte o
 // nome da ferramenta, o caminho do arquivo e o comando (para reconhecer teste); a ponte reduz a verbo e
@@ -571,12 +616,12 @@ function rotuloAgora(v: SalaVivo): string {
   return v.papel === 'agente' ? 'ouvindo' : 'acompanhando'
 }
 
-// aceita o convite puro (JP2.… ou JP1.…) ou o link inteiro (https://…/#JP2.…)
+// aceita o convite puro (JP3.…, JP2.…, JP1.… ou E1.…, de escritório) ou o link inteiro (https://…/#JP3.…)
 function conviteDe(texto: string): string | undefined {
   const t = texto.trim()
   const i = t.indexOf('#')
   const c = decodeURIComponent(i >= 0 ? t.slice(i + 1) : t).trim()
-  if (/^JP2\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\.\d{1,7}(\.[A-Za-z0-9_-]+)?$/.test(c)) return c
+  if (/^(?:JP2|JP3|E1)\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\.\d{1,7}(\.[A-Za-z0-9_-]+)?$/.test(c)) return c
   return /^JP1\.[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)?$/.test(c) ? c : undefined
 }
 
@@ -597,17 +642,20 @@ export const register: Register = on => {
       await $.command.register({
         name: 'sala',
         description: 'A sala cifrada ao vivo: os dois agentes e os dois humanos na mesma conversa (/sala ajuda)',
-        argumentHint: '[nova <nome> | convidar [jv1…] | entrar <link> | trocar <sala> | salas | anexar <arquivo> | endereco | caixa | expulsar <nome> | trocar-chave | encerrar sim | vivo | fechar]',
+        argumentHint: '[nova <nome> | convidar [jv1…] | entrar <link> | trocar <sala> | salas | anexar <arquivo> | endereco | caixa | escritorio | quadro | pedir <pedido> | aprovar <id> | recibo <id> | expulsar <nome> | trocar-chave | encerrar sim | vivo | fechar]',
         immediate: true,
       })
     } catch (err) {
       $.ui.log('/sala não registrado: ' + erroTexto(err))
     }
     PONTE = `${$.plugin.root}/ponte/ponte.py`
+    caixaVoltas = 0
+    caixaAvisadas = 0
     presencaRelogio?.cancel()
     presencaRelogio = $.clock.every(PRESENCA_CONFERE, () => {
       void conferirPresenca($).catch(() => {})
       void conferirSalaDaSessao($).catch(() => {})
+      void conferirCaixa($).catch(() => {})
     })
     void (async () => {
       if (!(await acharPython($))) {
@@ -673,7 +721,7 @@ export const register: Register = on => {
         if (salas[apelido]) return { text: `Já existe a sala '${apelido}'. Use /sala trocar ${apelido} ou outro nome.` }
         const eu = await identidade($, salas)
         const r = await rodar($, ['criar', '--nome', eu.nome, '--humano', eu.humano, '--apelido', apelido])
-        const convite = (r.stdout.match(/^JP[12]\.\S+$/m) ?? [])[0]
+        const convite = (r.stdout.match(/^(?:JP[123]|E1)\.\S+$/m) ?? [])[0]
         if (r.exitCode !== 0 || !convite) return { text: 'Não criei a sala: ' + (r.stderr || r.stdout).trim() }
         await ativar($, apelido, await lerSalas($))
         const link = linkDa(convite)
@@ -696,7 +744,7 @@ export const register: Register = on => {
         }
         const r = await rodar($, ['convite', '--sala', i.apelido])
         const convite = r.stdout.trim()
-        if (r.exitCode !== 0 || !/^JP[12]\./.test(convite)) return { text: 'Não achei o convite: ' + r.stderr.trim() }
+        if (r.exitCode !== 0 || !/^(?:JP[123]|E1)\./.test(convite)) return { text: 'Não achei o convite: ' + r.stderr.trim() }
         const link = linkDa(convite)
         const copiou = await copiar($, link)
         return { text: `Link da sala '${i.apelido}'${copiou ? ' (copiado)' : ''}:\n\n${link}\n\nConvite puro, para quem usa o kit: ${convite}` }
@@ -704,13 +752,14 @@ export const register: Register = on => {
       case 'entrar': {
         const bruto = resto.find(x => conviteDe(x))
         const convite = bruto ? conviteDe(bruto) : undefined
-        if (!convite) return { text: 'Cole o link ou o convite: /sala entrar https://…/#JP2.xxxxx [nome da sala]' }
+        if (!convite) return { text: 'Cole o link ou o convite: /sala entrar https://…/#JP3.xxxxx [nome da sala]' }
         const apelido = (resto.find(x => x !== bruto) ?? '').replace(/[^\w-]/g, '').slice(0, 40)
         const eu = await identidade($, salas)
         // sempre com apelido: com outra sala na máquina, a ponte recusa entrar sem ele (evita mandar para a sala errada)
-        const apelidoFinal = apelido || 'sala-' + convite.slice(4, 10).toLowerCase().replace(/[^a-z0-9]/g, 'x')
+        const apelidoFinal = apelido || 'sala-' + convite.slice(convite.indexOf('.') + 1).slice(0, 6).toLowerCase().replace(/[^a-z0-9]/g, 'x')
         // (JP2: os 6 primeiros caracteres do id da sala; JP1: da chave)
-        const args2 = ['entrar', convite, '--nome', eu.nome, '--humano', eu.humano, '--apelido', apelidoFinal]
+        // 2.8: link de escritório (E1) entra pelo corredor e pede o crachá
+        const args2 = [...(convite.startsWith('E1.') ? ['escritorio', 'entrar'] : ['entrar']), convite, '--nome', eu.nome, '--humano', eu.humano, '--apelido', apelidoFinal]
         const r = await rodar($, args2)
         if (r.exitCode !== 0) return { text: 'Não entrei: ' + (r.stderr || r.stdout).trim() }
         const novas = await lerSalas($)
@@ -774,7 +823,8 @@ export const register: Register = on => {
       }
       case 'caixa': {
         const r = await rodar($, ['caixa'], undefined, 60000)
-        if (r.exitCode === 3) return { text: 'Nada novo na caixa (o relay guarda cada carta por 12 h).' }
+        caixaAvisadas = 0
+        if (r.exitCode === 3) return { text: 'Nada novo na caixa (o relay da Sala guarda cada carta por 30 dias).' }
         return { text: (r.stdout || r.stderr).trim().slice(0, 4000) }
       }
       case 'aceitar':
@@ -813,11 +863,80 @@ export const register: Register = on => {
         if (!i) return { text: 'Nenhuma sala ativa. /sala nova <nome> cria uma.' }
         const resto2 = args.slice(verbo.length).trim()
         const m = /^"([^"]+)"\s*([\s\S]*)$/.exec(resto2) ?? /^'([^']+)'\s*([\s\S]*)$/.exec(resto2) ?? /^(\S+)\s*([\s\S]*)$/.exec(resto2)
-        if (!m) return { text: 'Diga o arquivo: /sala anexar "C:\\caminho\\planta.pdf" texto opcional (até 2 MB)' }
+        if (!m) return { text: 'Diga o arquivo: /sala anexar "C:\\caminho\\planta.pdf" texto opcional (até 15 MB no relay da Sala; 2 MB no público)' }
         const r = await rodar($, ['dizer', '--sala', i.apelido, '--anexo', m[1]!, (m[2] ?? '').trim()], undefined, 120000)
         if (r.exitCode !== 0) return { text: 'Não mandei: ' + (r.stderr || r.stdout).trim().slice(0, 400) }
         await update($, campo, n => n + 1)
         return { text: r.stdout.trim() }
+      }
+      // ---------- 2.8: escritório (o andar permanente) e reenvio ----------
+      case 'escritorio':
+      case 'escritório':
+      case 'andar': {
+        const sub = (resto[0] ?? 'ver').toLowerCase()
+        if (sub === 'criar') {
+          const nome = resto.slice(1).join(' ').trim().slice(0, 60)
+          if (!nome) return { text: 'Diga o nome do escritório: /sala escritorio criar PRAGMA' }
+          const apelido = nome.normalize('NFKD').replace(/[^\w -]/g, '').trim().toLowerCase().replace(/\s+/g, '-').slice(0, 30) || 'escritorio'
+          if (salas[apelido]) return { text: `Já existe a sala '${apelido}'. Escolha outro nome.` }
+          const eu = await identidade($, salas)
+          const r = await rodar($, ['escritorio', 'criar', nome, '--agente', eu.nome, '--humano', eu.humano, '--apelido', apelido], undefined, 120000)
+          const convite = (r.stdout.match(/^E1\.\S+$/m) ?? [])[0]
+          if (r.exitCode !== 0 || !convite) return { text: 'Não criei o escritório: ' + (r.stderr || r.stdout).trim().slice(0, 500) }
+          escritorios.add(apelido)
+          await ativar($, apelido, await lerSalas($))
+          const link = linkDa(convite)
+          const copiou = await copiar($, link)
+          await abrirPainel($)
+          return {
+            text:
+              `Escritório '${nome}' criado${copiou ? ' e link copiado' : ''}. O painel mostra o corredor; o andar inteiro está na página:\n\n${link}\n\n` +
+              'Mande o link a quem vai trabalhar no andar. Cada pessoa ganha o crachá quando o seu agente estiver ouvindo o corredor (ou com a página do andar aberta). /sala escritorio mostra o andar aqui.',
+          }
+        }
+        const r = await rodar($, ['escritorio', 'ver', ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 6000) }
+      }
+      case 'quadro': {
+        const r = await rodar($, ['escritorio', 'quadro', ...doEscritorio(i?.apelido), ...(resto[0] === 'todos' ? ['--todos'] : [])], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 6000) }
+      }
+      case 'pedir': {
+        // /sala pedir Fechar o orçamento @Clara  (o @Nome diz para quem; sem ele, fica sem dono)
+        const para = resto.filter(x => x.startsWith('@')).map(x => x.slice(1).replace(/_/g, ' '))[0]
+        const titulo = resto.filter(x => !x.startsWith('@')).join(' ').trim()
+        if (!titulo) return { text: 'Diga o pedido: /sala pedir Fechar o orçamento @Clara (o @Nome é opcional; nome com espaço: @Ana_Paula)' }
+        const r = await rodar($, ['escritorio', 'pedir', titulo, '--humano', ...(para ? ['--para', para] : []), ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 800) }
+      }
+      case 'aprovar':
+      case 'devolver': {
+        const id = (resto[0] ?? '').trim()
+        if (!/^[0-9a-f]{4,8}$/.test(id)) return { text: `Diga o cartão: /sala ${verbo.toLowerCase()} <id do cartão> [nota] (os ids estão em /sala quadro)` }
+        const nota = resto.slice(1).join(' ').trim()
+        const r = await rodar($, ['escritorio', verbo.toLowerCase(), id, '--humano', ...(nota ? ['--nota', nota] : []), ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 800) }
+      }
+      case 'recibo': {
+        const id = (resto[0] ?? '').trim()
+        if (!/^[0-9a-f]{4,8}$/.test(id)) return { text: 'Diga o cartão: /sala recibo <id do cartão> (os ids estão em /sala quadro)' }
+        const r = await rodar($, ['escritorio', 'recibo', id, ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'cracha':
+      case 'crachá': {
+        const nome = resto.join(' ').trim()
+        const r = await rodar($, ['escritorio', 'cracha', ...(nome ? ['dar', nome] : ['listar']), ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 2000) }
+      }
+      case 'reenviar': {
+        if (!i) return { text: 'Nenhuma sala ativa.' }
+        const id = (resto[0] ?? '').trim()
+        if (!/^[0-9a-f]{16}$/.test(id)) return { text: 'Diga o id da mensagem (16 letras e números, aparece no aviso): /sala reenviar <id>' }
+        const r = await rodar($, ['dizer', '--sala', i.apelido, `[REENVIAR] ${id}`], undefined, 60000)
+        if (r.exitCode !== 0) return { text: 'Não pedi o reenvio: ' + (r.stderr || r.stdout).trim().slice(0, 400) }
+        await update($, campo, n => n + 1)
+        return { text: `Pedido de reenvio da mensagem ${id} mandado para a sala '${i.apelido}'.` }
       }
       case 'fechar':
         await $.ui.close({ id: PAINEL })
