@@ -112,7 +112,7 @@ try:
 except ImportError:  # Python sem ssl: só relay http://
     ssl = None
 
-__version__ = "2.9"
+__version__ = "2.9.1"
 VERSAO = "JP1"                      # convite e cifra das salas de chave fixa (estável desde a v1)
 VERSAO_JP2 = "JP2"                  # convite e cifra das salas de chave do dia (2.6)
 VERSAO_JP3 = "JP3"                  # 2.8: convite de sala JP2 com sigilo futuro por remetente obrigatório
@@ -2517,7 +2517,8 @@ def _classificar_erro_rede(e):
 # fala já saiu pelo principal e o envio não quebra. A página segue a mesma regra.
 RESERVA_FALHA_S = 60                # por quanto tempo o principal fica marcado "em falha" depois de não atender
 RESERVA_ESPERA_S = 20               # espera pelo principal antes de passar ao reserva (em vez dos 60 s de sempre)
-RESERVA_CONSULTA_S = 25             # com a escuta no principal, o reserva é consultado de 25 em 25 s
+RESERVA_CONSULTA_S = 25             # escuta no principal, com alguém falando pelo reserva: consulta de 25 em 25 s
+RESERVA_CONSULTA_CALMA_S = 300      # escuta no principal, sem ninguém no reserva: de 5 em 5 min (poupa a cota do relay público)
 RESERVA_GRACA_S = 3                 # numa consulta, quanto o reserva tem para conectar depois que o principal já respondeu
 RESERVA_ESPELHO_S = 600             # alguém falou pelo reserva há menos disto: o que sai pelo principal vai também para lá
 _RESERVA_USADA = [False]            # a publicação em curso saiu pelo reserva (vai para a forma do envio)
@@ -2530,6 +2531,21 @@ class _RelayFora(Exception):
     def __init__(self, causa: str, http=None):
         super().__init__(causa)
         self.causa, self.http = causa, http
+
+
+def intervalo_do_reserva(sala: dict) -> float:
+    """De quanto em quanto tempo uma escuta longa (ouvir aberto, vigia, painel), com o relay da sala bom, consulta o
+    reserva. Depressa (RESERVA_CONSULTA_S) enquanto alguém fala só por ele: mensagem de outro participante chegada
+    pelo reserva há menos de RESERVA_ESPELHO_S ('reserva_vista', a mesma janela do espelho). Com calma
+    (RESERVA_CONSULTA_CALMA_S) quando não há sinal de que alguém precisa dele: cada consulta conta na cota por IP do
+    relay público, e uma equipe atrás do mesmo roteador esgotaria a cota de quem tem sala lá. A consulta do começo de
+    cada comando e de cada ouvir não muda. JARVIS_PONTE_RESERVA_CONSULTA_S troca o intervalo calmo (só para teste)."""
+    if 0 <= time.time() - _numero(sala.get("reserva_vista")) < RESERVA_ESPELHO_S:
+        return RESERVA_CONSULTA_S
+    try:
+        return max(1.0, float(os.environ.get("JARVIS_PONTE_RESERVA_CONSULTA_S") or RESERVA_CONSULTA_CALMA_S))
+    except ValueError:
+        return RESERVA_CONSULTA_CALMA_S
 
 
 def reserva_de(servidor: str):
@@ -3004,9 +3020,10 @@ def _eventos_dos_dois(sala: dict, reserva: str, since: str, since_r: str, ate: f
     """2.9: os eventos do relay da sala e do relay reserva, cada um com o seu cursor.
 
     `poll`: o que cada um guarda, o principal primeiro; basta um dos dois responder. Fluxo aberto: a escuta fica no
-    principal e consulta o reserva de RESERVA_CONSULTA_S em RESERVA_CONSULTA_S segundos (é por lá que chega a fala de
-    quem não alcançou o principal); se o principal não atende, a escuta passa para o reserva na hora e volta a tentar
-    o principal a cada RESERVA_FALHA_S. Só vira ErroPonte se os dois ficam fora, MAX_FALHAS vezes seguidas. Lápide e
+    principal e consulta o reserva ao abrir e depois de tempos em tempos (é por lá que chega a fala de quem não
+    alcançou o principal): de RESERVA_CONSULTA_S em RESERVA_CONSULTA_S segundos enquanto alguém fala só pelo reserva,
+    de RESERVA_CONSULTA_CALMA_S em RESERVA_CONSULTA_CALMA_S quando não (ver intervalo_do_reserva); se o principal não
+    atende, a escuta passa para o reserva na hora e volta a tentar o principal a cada RESERVA_FALHA_S. Só vira ErroPonte se os dois ficam fora, MAX_FALHAS vezes seguidas. Lápide e
     registro fixo só valem vindos do principal."""
     principal = str(sala["servidor"]).rstrip("/")
     tps = ",".join(topicos or [sala["topico"]])
@@ -3190,7 +3207,9 @@ def _eventos_dos_dois(sala: dict, reserva: str, since: str, since_r: str, ate: f
                         motivo = _classificar_erro_rede(erro_lado)[1]
                         marcar_falha(principal, motivo)
                         anunciar(motivo)
-                    proxima = time.time() + (RESERVA_FALHA_S if ativo == reserva else RESERVA_CONSULTA_S)
+                    # o que a consulta trouxe já foi entregue a quem ouve: se veio fala de outro só pelo reserva, a sala
+                    # já tem a hora dela e a próxima consulta sai depressa; senão, com calma
+                    proxima = time.time() + (RESERVA_FALHA_S if ativo == reserva else intervalo_do_reserva(sala))
             resta = ate - time.time()
             if resta <= 0:
                 break
@@ -3236,7 +3255,7 @@ def _eventos_dos_dois(sala: dict, reserva: str, since: str, since_r: str, ate: f
                 if lado is not None:
                     lado.parar()
                     lado = None
-                ativo, proxima = principal, time.time() + RESERVA_CONSULTA_S
+                ativo, proxima = principal, time.time() + intervalo_do_reserva(sala)
                 continue
             # o reserva também falhou: os dois estão fora
             if falhas >= MAX_FALHAS:
@@ -8188,6 +8207,8 @@ def cmd_vigia(a):
                 for mid, msg, anexos in fila:
                     ass, _ = assinatura_de(apelido, sala, msg, [m for m, _ in anexos], guardar=False)
                     origem = origem_de(apelido, sala, msg, mid, ass)
+                    if mid in leitor.pelo_reserva and not origem.startswith(("eu", "meu-humano")):
+                        anotar_reserva(apelido, sala, leitor.pelo_reserva[mid])     # 2.9.1: a consulta ao reserva acelera
                     ctl, srv = ler_controle(msg.get("texto")), ler_servico(msg.get("texto"))
                     if ctl is not None:
                         if controle_do_dono(sala, msg, ass, ctl) and origem != "eu":

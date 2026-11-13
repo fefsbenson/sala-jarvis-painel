@@ -1,6 +1,6 @@
 {
   "name": "sala",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "A sala cifrada da ponte ao vivo num painel: quem está presente, o que cada agente está fazendo agora, mensagens assinadas com sigilo futuro, anexos, endereço e caixa de entrada com aviso de carta nova, os controles de quem criou a sala e o escritório (andar permanente com quadro de entregas) (/sala)",
   "author": {
     "name": "Felipe Rosa"
