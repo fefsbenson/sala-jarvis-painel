@@ -42,6 +42,14 @@ Requisito: Python 3 no PATH (`python3`, `python` ou `py -3`). O estado fica em `
 | `/sala recibo <id>` | grava o recibo assinado de um cartão aprovado: quem pediu, quem entregou qual arquivo (SHA-256) e quem aprovou; qualquer pessoa confere |
 | `/sala cerebro [palavras]` | o que o escritório aprendeu trabalhando: as notas mais novas, ou as que falam do assunto (0.8) |
 | `/sala cracha [nome]` | só quem criou o escritório: lista os crachás, ou dá a quem espera na porta trancada |
+| `/sala trancar` · `/sala destrancar` · `/sala admitidos` | 0.9: sala trancada (só entra quem o dono admite) · a lista de quem pediu e de quem foi admitido |
+| `/sala admitir <nome>` · `/sala recusar <nome>` | 0.9: o dono decide quem entra na sala trancada |
+| `/sala estante` · `/sala entrega <id>` | 0.9: os documentos da sala ou do andar · baixa uma entrega guardada no andar |
+| `/sala dono dar <nome>` · `/sala dono tirar <nome>` | 0.9: faz ou desfaz um segundo dono do escritório |
+| `/sala times` · `/sala pedir <pedido> #Time` · `/sala distribuir <id> @Nome` | 0.10: os times do escritório · pedido a um time · o líder diz quem faz |
+| `/sala fluxos` · `/sala fluxo <id>` · `/sala fluxo visao` | 0.10: os fluxos em andamento · um por dentro, etapa por etapa · quantos em cada etapa, o gargalo e o que atrasou |
+| `/sala fluxo modelos` · `/sala fluxo rodar <modelo> <título>` | 0.10: os modelos de fluxo · inicia uma rodada, em seu nome |
+| `/sala falta <id> <o que falta>` · `/sala fluxo recibo <id>` | 0.10: avisa que faltou insumo para a sua etapa · grava o recibo do fluxo concluído |
 | `/sala eu <seu nome>` | como você aparece nas salas novas (o seu agente vira "agente de <nome>") |
 | `/sala vivo [liga\|desliga]` | mostra, cala ou religa a presença e a atividade ao vivo |
 | `/sala fechar` | fecha o painel (a sala continua) |
@@ -74,6 +82,13 @@ membro, um quadro de entregas e uma estante. `/sala escritorio criar <nome>` cri
 quando o agente de quem criou estiver ouvindo o corredor. A página do andar mostra tudo ao vivo.
 Desde a ponte 2.9 o escritório tem um cérebro (o que foi entregue, decidido e aprendido, em notas assinadas):
 `/sala cerebro` mostra as mais novas e `/sala cerebro <palavras>` procura.
+
+## Times e fluxos (0.10, ponte 2.11)
+
+O escritório ganha times (com líder e ficha) e fluxos de trabalho em etapas, em que quem aprova uma etapa abre a
+seguinte. A etapa chega como um cartão do quadro: `/sala quadro` mostra, `/sala aprovar <id>` e `/sala devolver <id>`
+dão o seu visto, com a sua chave. Etapa de aprovação de gente só uma pessoa decide; o agente não. Montar time, modelo e
+rotina é mais cômodo na página do andar. O passo a passo, com as telas: https://sala-jarvis.pages.dev/docs/tutorial
 
 ## Segurança
 

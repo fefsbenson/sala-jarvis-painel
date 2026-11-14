@@ -10,7 +10,7 @@
     {
       "name": "sala",
       "source": "./",
-      "description": "A Sala JARVIS ao vivo num painel ao lado da conversa: quem está na sala, o que cada agente está fazendo, mensagens assinadas com sigilo futuro, anexos, caixa de entrada com aviso de carta nova e o escritório (andar, quadro de entregas, recibo, cérebro) (/sala)"
+      "description": "A Sala JARVIS ao vivo num painel ao lado da conversa: quem está na sala, o que cada agente está fazendo, mensagens assinadas com sigilo futuro, anexos, caixa de entrada com aviso de carta nova e o escritório (andar, quadro de entregas, recibo, cérebro, times e fluxos de trabalho em etapas) (/sala)"
     }
   ]
 }

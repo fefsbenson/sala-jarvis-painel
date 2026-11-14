@@ -119,7 +119,18 @@ const AJUDA = [
   '  /sala quadro · /sala pedir <pedido> [@Nome] · /sala aprovar <id> [nota] · /sala devolver <id> <motivo>',
   '  /sala recibo <id>   o recibo assinado de um cartão aprovado (quem pediu, quem entregou qual arquivo, quem aprovou)',
   '  /sala cerebro [palavras]   o que o escritório aprendeu trabalhando: as notas mais novas, ou as que falam do assunto',
-  '  /sala cracha [nome]    (só quem criou o escritório) lista os crachás, ou dá a quem espera na porta trancada',
+  '  /sala cracha [nome]    (quem criou o escritório, ou um segundo dono) lista os crachás, ou dá a quem espera na porta',
+  '  /sala dono dar|tirar <nome>   (só quem criou o escritório) faz ou desfaz um segundo dono',
+  '  /sala entrega <id>     baixa do andar o arquivo de uma entrega guardada, conferido pelo SHA-256 do cartão',
+  '  /sala trancar · /sala destrancar   (só quem criou) cada entrada passa a pedir aprovação, ou deixa de pedir',
+  '  /sala admitidos · /sala admitir <nome> · /sala recusar <nome>   quem pediu para entrar na sala trancada',
+  '  /sala reserva [liga|desliga]   (só quem criou) o relay reserva desta sala',
+  '  /sala estante [nome]   os documentos de contexto da sala ativa, ou um deles',
+  '  /sala times            os times do escritório: líder, pessoas, como recebem pedido · /sala pedir <pedido> #Time',
+  '  /sala distribuir <id> @Nome   (o líder do time) diz quem faz um pedido que chegou ao time',
+  '  /sala fluxos           os fluxos em andamento, etapa por etapa · /sala fluxo modelos · /sala fluxo visao',
+  '  /sala fluxo rodar <modelo> <título>   inicia um fluxo · /sala fluxo <id> mostra um · /sala fluxo recibo <id>',
+  '  /sala falta <id> <o que falta>   avisa que faltou insumo para a sua etapa (quem conduz refaz a anterior)',
   '  /sala fechar           fecha o painel (a sala continua)',
   'No painel, o que você escreve vai para os quatro. O seu agente trata como ordem sua;',
   'o agente do outro lado, como pedido do outro humano sobre a entrega conjunta.',
@@ -643,7 +654,7 @@ export const register: Register = on => {
       await $.command.register({
         name: 'sala',
         description: 'A sala cifrada ao vivo: os dois agentes e os dois humanos na mesma conversa (/sala ajuda)',
-        argumentHint: '[nova <nome> | convidar [jv1…] | entrar <link> | trocar <sala> | salas | anexar <arquivo> | endereco | caixa | escritorio | quadro | pedir <pedido> | aprovar <id> | recibo <id> | cerebro [palavras] | expulsar <nome> | trocar-chave | encerrar sim | vivo | fechar]',
+        argumentHint: '[nova <nome> | convidar [jv1…] | entrar <link> | trocar <sala> | salas | anexar <arquivo> | endereco | caixa | escritorio | trancar | admitir <nome> | estante | quadro | pedir <pedido> | aprovar <id> | recibo <id> | cerebro [palavras] | expulsar <nome> | trocar-chave | encerrar sim | vivo | fechar | times | fluxos | fluxo rodar <modelo> <título>]',
         immediate: true,
       })
     } catch (err) {
@@ -904,10 +915,12 @@ export const register: Register = on => {
       }
       case 'pedir': {
         // /sala pedir Fechar o orçamento @Clara  (o @Nome diz para quem; sem ele, fica sem dono)
+        // 2.11: #Time manda o pedido a um time (quem recebe sai da regra do time)
         const para = resto.filter(x => x.startsWith('@')).map(x => x.slice(1).replace(/_/g, ' '))[0]
-        const titulo = resto.filter(x => !x.startsWith('@')).join(' ').trim()
-        if (!titulo) return { text: 'Diga o pedido: /sala pedir Fechar o orçamento @Clara (o @Nome é opcional; nome com espaço: @Ana_Paula)' }
-        const r = await rodar($, ['escritorio', 'pedir', titulo, '--humano', ...(para ? ['--para', para] : []), ...doEscritorio(i?.apelido)], undefined, 60000)
+        const time = resto.filter(x => x.startsWith('#')).map(x => x.slice(1).replace(/_/g, ' '))[0]
+        const titulo = resto.filter(x => !x.startsWith('@') && !x.startsWith('#')).join(' ').trim()
+        if (!titulo) return { text: 'Diga o pedido: /sala pedir Fechar o orçamento @Clara (ou #Orçamentos, para um time; nome com espaço: @Ana_Paula)' }
+        const r = await rodar($, ['escritorio', 'pedir', titulo, '--humano', ...(para ? ['--para', para] : []), ...(time ? ['--time', time] : []), ...doEscritorio(i?.apelido)], undefined, 60000)
         return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 800) }
       }
       case 'aprovar':
@@ -935,6 +948,90 @@ export const register: Register = on => {
         const nome = resto.join(' ').trim()
         const r = await rodar($, ['escritorio', 'cracha', ...(nome ? ['dar', nome] : ['listar']), ...doEscritorio(i?.apelido)], undefined, 60000)
         return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 2000) }
+      }
+      // 2.10: sala trancada, relay reserva por escolha, estante da sala, entrega guardada e segundo dono
+      case 'trancar':
+      case 'destrancar':
+      case 'admitidos': {
+        if (!i) return { text: 'Nenhuma sala ativa.' }
+        const r = await rodar($, [verbo.toLowerCase(), '--sala', i.apelido], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 2000) }
+      }
+      case 'admitir':
+      case 'recusar': {
+        if (!i) return { text: 'Nenhuma sala ativa.' }
+        const quem = resto.join(' ').trim()
+        if (!quem) return { text: `Diga quem: /sala ${verbo.toLowerCase()} <nome ou código> (a lista está em /sala admitidos)` }
+        const r = await rodar($, [verbo.toLowerCase(), quem, '--sala', i.apelido], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'reserva': {
+        if (!i) return { text: 'Nenhuma sala ativa.' }
+        const a0 = (resto[0] ?? '').toLowerCase()
+        const acao = a0.startsWith('lig') ? ['ligar'] : a0.startsWith('desl') ? ['desligar'] : []
+        const r = await rodar($, ['reserva', ...acao, '--sala', i.apelido], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'estante': {
+        if (!i) return { text: 'Nenhuma sala ativa.' }
+        const nome = resto.join(' ').trim()
+        const r = await rodar($, ['estante', ...(nome ? ['ler', nome] : ['ver']), '--sala', i.apelido], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 4000) }
+      }
+      case 'entrega': {
+        const id = (resto[0] ?? '').trim()
+        if (!/^[0-9a-f]{4,8}$/.test(id)) return { text: 'Diga o cartão: /sala entrega <id do cartão> (os ids estão em /sala quadro)' }
+        const r = await rodar($, ['escritorio', 'entrega', 'baixar', id, ...doEscritorio(i?.apelido)], undefined, 120000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'dono': {
+        const acao = (resto[0] ?? '').toLowerCase()
+        const nome = resto.slice(1).join(' ').trim()
+        if (!['dar', 'tirar'].includes(acao) || !nome) return { text: 'Use: /sala dono dar <nome> (vira segundo dono) ou /sala dono tirar <nome>' }
+        const r = await rodar($, ['escritorio', 'dono', acao, nome, ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      // 2.11: orquestração do escritório (times, distribuição, fluxos, faltou insumo)
+      case 'times':
+      case 'time': {
+        const r = await rodar($, ['escritorio', 'time', 'ver', ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 4000) }
+      }
+      case 'distribuir': {
+        const id = (resto[0] ?? '').trim()
+        const para = resto.slice(1).join(' ').replace(/^@/, '').replace(/_/g, ' ').trim()
+        if (!/^[0-9a-f]{4,8}$/.test(id) || !para) return { text: 'Use: /sala distribuir <id do cartão> @Nome (os ids estão em /sala quadro)' }
+        const r = await rodar($, ['escritorio', 'distribuir', id, '--para', para, '--humano', ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'falta': {
+        const id = (resto[0] ?? '').trim()
+        const oQue = resto.slice(1).join(' ').trim()
+        if (!/^[0-9a-f]{4,8}$/.test(id) || !oQue) return { text: 'Use: /sala falta <id do cartão> <o que falta>' }
+        const r = await rodar($, ['escritorio', 'falta', id, oQue, '--humano', ...doEscritorio(i?.apelido)], undefined, 60000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 1200) }
+      }
+      case 'fluxos':
+      case 'fluxo': {
+        const sub = (resto[0] ?? '').toLowerCase()
+        const esc = doEscritorio(i?.apelido)
+        let argv: string[]
+        if (verbo.toLowerCase() === 'fluxos' || !sub) argv = ['escritorio', 'fluxo', 'andamento', ...esc]
+        else if (sub === 'modelos') argv = ['escritorio', 'fluxo', 'modelos', ...esc]
+        else if (sub === 'visao' || sub === 'visão') argv = ['escritorio', 'fluxo', 'visao', ...esc]
+        else if (sub === 'rodar') {
+          const modelo = (resto[1] ?? '').trim()
+          const titulo = resto.slice(2).join(' ').trim()
+          if (!modelo || !titulo) return { text: 'Use: /sala fluxo rodar <modelo> <título desta rodada> (os modelos estão em /sala fluxo modelos)' }
+          argv = ['escritorio', 'fluxo', 'rodar', modelo, titulo, '--humano', ...esc]
+        } else if (sub === 'recibo') {
+          const x = (resto[1] ?? '').trim()
+          if (!/^[0-9a-f]{8}$/.test(x)) return { text: 'Diga o fluxo: /sala fluxo recibo <id> (os ids estão em /sala fluxos)' }
+          argv = ['escritorio', 'fluxo', 'recibo', x, ...esc]
+        } else if (/^[0-9a-f]{8}$/.test(sub)) argv = ['escritorio', 'fluxo', 'andamento', sub, ...esc]
+        else return { text: 'Use: /sala fluxos · /sala fluxo modelos · /sala fluxo rodar <modelo> <título> · /sala fluxo <id> · /sala fluxo visao · /sala fluxo recibo <id>' }
+        const r = await rodar($, argv, undefined, 90000)
+        return { text: (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().slice(0, 6000) }
       }
       case 'reenviar': {
         if (!i) return { text: 'Nenhuma sala ativa.' }
